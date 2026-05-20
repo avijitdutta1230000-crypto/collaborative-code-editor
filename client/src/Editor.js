@@ -3,7 +3,7 @@ import MonacoEditor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
 import { useParams, useLocation } from 'react-router-dom';
 
-const socket = io('https://collaborative-code-editor-q064.onrender.com');
+const socket = io('http://localhost:5000');
 
 const LANGUAGES = [
   { name: 'JavaScript', value: 'javascript', pistonName: 'javascript' },
@@ -75,7 +75,7 @@ function Editor() {
   setOutput('Running...');
 
   try {
-    const res = await fetch('https://collaborative-code-editor-q064.onrender.com/run', {
+    const res = await fetch('http://localhost:5000/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

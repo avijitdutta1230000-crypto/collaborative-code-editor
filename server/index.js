@@ -2,41 +2,55 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const { VM } = require('vm2');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Home Route
 app.get('/', (req, res) => {
   res.send('🚀 Collaborative Code Editor Server is Running!');
-});
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: 'http://localhost:3000' }
 });
 
 // Run Code Route
 app.post('/run', async (req, res) => {
   const { code, language } = req.body;
-  try {
-    const fetch = (await import('node-fetch')).default;
-    const response = await fetch('https://emkc.org/api/v2/piston/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        language: language,
-        version: '*',
-        files: [{ content: code }],
-      }),
+
+  if (language === 'javascript') {
+    try {
+      let output = '';
+      const vm = new VM({
+        timeout: 3000,
+        sandbox: {
+          console: {
+            log: (...args) => { output += args.join(' ') + '\n'; },
+            error: (...args) => { output += args.join(' ') + '\n'; },
+            warn: (...args) => { output += args.join(' ') + '\n'; },
+          }
+        }
+      });
+      vm.run(code);
+      res.json({ run: { stdout: output || 'No output', stderr: '' } });
+    } catch (err) {
+      res.json({ run: { stdout: '', stderr: err.message } });
+    }
+  } else {
+    res.json({
+      run: {
+        stdout: `⚠️ ${language.toUpperCase()} execution coming soon!\n\nCurrently supported:\n✅ JavaScript\n\nSwitch to JavaScript to run code!`,
+        stderr: ''
+      }
     });
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    console.log('Error:', err);
-    res.json({ run: { stdout: '', stderr: 'Error running code!' } });
   }
 });
 
 // Socket.io
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
+
 const rooms = {};
 
 io.on('connection', (socket) => {
