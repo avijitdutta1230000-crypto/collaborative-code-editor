@@ -3,6 +3,7 @@ import MonacoEditor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
 import { useParams, useLocation } from 'react-router-dom';
 
+// Initialize Socket connection
 const socket = io('http://localhost:5000');
 
 const LANGUAGES = [
@@ -13,12 +14,21 @@ const LANGUAGES = [
   { name: 'TypeScript', value: 'typescript', pistonName: 'typescript' },
 ];
 
+// Default boilerplates so the editor isn't blank on switch
+const STARTER_CODE = {
+  javascript: '// JavaScript Environment\nconsole.log("Hello, World!");',
+  python: '# Python Environment\nprint("Hello, World!")',
+  java: '// Java Environment\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello World!");\n  }\n}',
+  cpp: '// C++ Environment\n#include <iostream>\n\nint main() {\n  std::cout << "Hello World!";\n  return 0;\n}',
+  typescript: '// TypeScript Environment\nconst msg: string = "Hello World!";\nconsole.log(msg);'
+};
+
 function Editor() {
   const { roomId } = useParams();
   const location = useLocation();
   const username = location.state?.username || 'Anonymous';
 
-  const [code, setCode] = useState('// Start coding here...');
+  const [code, setCode] = useState(STARTER_CODE.javascript);
   const [language, setLanguage] = useState(LANGUAGES[0]);
   const [users, setUsers] = useState([]);
   const [output, setOutput] = useState('');
@@ -29,7 +39,7 @@ function Editor() {
 
     socket.on('code-update', (newCode) => setCode(newCode));
     socket.on('language-update', (newLang) => {
-      const found = LANGUAGES.find(l => l.value === newLang);
+      const found = LANGUAGES.find((l) => l.value === newLang);
       if (found) setLanguage(found);
     });
     socket.on('users-update', (userList) => setUsers(userList));
@@ -47,9 +57,15 @@ function Editor() {
   };
 
   const handleLanguageChange = (e) => {
-    const selected = LANGUAGES.find(l => l.value === e.target.value);
+    const selected = LANGUAGES.find((l) => l.value === e.target.value);
     setLanguage(selected);
+    
+    // Automatically set default starter code when changing language
+    const newCode = STARTER_CODE[selected.value] || '// Start typing...';
+    setCode(newCode);
+
     socket.emit('language-change', { roomId, language: selected.value });
+    socket.emit('code-change', { roomId, code: newCode });
   };
 
   const copyRoomId = () => {
@@ -59,8 +75,11 @@ function Editor() {
 
   const downloadCode = () => {
     const extensions = {
-      javascript: 'js', python: 'py', java: 'java',
-      cpp: 'cpp', typescript: 'ts',
+      javascript: 'js',
+      python: 'py',
+      java: 'java',
+      cpp: 'cpp',
+      typescript: 'ts',
     };
     const ext = extensions[language.value] || 'txt';
     const blob = new Blob([code], { type: 'text/plain' });
@@ -70,56 +89,80 @@ function Editor() {
     a.download = `code.${ext}`;
     a.click();
   };
- const runCode = async () => {
-  setRunning(true);
-  setOutput('Running...');
 
-  try {
-    const res = await fetch('http://localhost:5000/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: code,
-        language: language.pistonName,
-      }),
-    });
+  const runCode = async () => {
+    setRunning(true);
+    setOutput('Running code...');
+    const currentLanguage = typeof language === 'object' 
+    ? (language.pistonName || language.value) 
+    : language;
 
-    const data = await res.json();
-    console.log('API Response:', data);
-    const out = data.run?.stdout || data.run?.stderr || 'No output';
-    setOutput(out);
-  } catch (err) {
-    setOutput('Error: ' + err.message);
-  }
+    try {
+      const res = await fetch('http://localhost:5000/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: code,
+          language: currentLanguage,
+        }),
+      });
 
-  setRunning(false);
-};
+      const data = await res.json();
+      console.log('Server Output:', data);
+      const outputText = 
+      data.run?.output || 
+      data.run?.stdout || 
+      data.run?.stderr || 
+      (data.message ? `Error: ${data.message}` : 'Code executed with no output.');
+      
+      setOutput(outputText); // <--- HERE! You saved it into 'outputText', but called 'setOutput(out)'
+    } catch (err) {
+      setOutput('Error connecting to execution server: ' + err.message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
   return (
     <div style={{ height: '100vh', backgroundColor: '#1e1e1e', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Header */}
+      {/* VS Code Dark Style Header Navbar */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '10px 20px',
-        backgroundColor: '#007acc',
+        padding: '8px 16px',
+        backgroundColor: '#252526',
+        borderBottom: '1px solid #3c3c3c'
       }}>
-        <h2 style={{ color: 'white', margin: 0 }}>🖥️ Collaborative Editor</h2>
+        {/* Left Side: App Name + Room Stats */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <h3 style={{ color: '#007acc', margin: 0, fontSize: '16px', fontWeight: 'bold' }}>
+            ⚡ CodeSync
+          </h3>
+          <span style={{ color: '#858585', fontSize: '12px' }}>
+            Room: <strong style={{ color: '#cccccc' }}>{roomId}</strong>
+          </span>
+          <span style={{ color: '#4ec9b0', fontSize: '12px' }}>
+            👥 {users.length} Active
+          </span>
+        </div>
 
+        {/* Right Side: Language Dropdown + Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-
-          <span style={{ color: 'white' }}>👥 {users.length} online</span>
-
+          
+          {/* Language Selector */}
           <select
             value={language.value}
             onChange={handleLanguageChange}
             style={{
-              padding: '8px',
-              borderRadius: '5px',
-              backgroundColor: '#1e1e1e',
-              color: 'white',
-              border: '1px solid white',
+              padding: '4px 8px',
+              borderRadius: '3px',
+              backgroundColor: '#3c3c3c',
+              color: '#ffffff',
+              border: 'none',
+              fontSize: '12px',
+              cursor: 'pointer'
             }}
           >
             {LANGUAGES.map((lang) => (
@@ -129,45 +172,53 @@ function Editor() {
             ))}
           </select>
 
+          {/* Copy Room Button */}
           <button onClick={copyRoomId} style={{
-            padding: '8px 12px',
-            backgroundColor: '#28a745',
-            color: 'white',
+            padding: '5px 10px',
+            backgroundColor: '#3a3d41',
+            color: '#cccccc',
             border: 'none',
-            borderRadius: '5px',
+            borderRadius: '2px',
+            fontSize: '12px',
             cursor: 'pointer',
           }}>
-            📋 Copy Room ID
+            📋 Share Room
           </button>
 
+          {/* Download Button */}
           <button onClick={downloadCode} style={{
-            padding: '8px 12px',
-            backgroundColor: '#6f42c1',
-            color: 'white',
+            padding: '5px 10px',
+            backgroundColor: '#3a3d41',
+            color: '#cccccc',
             border: 'none',
-            borderRadius: '5px',
+            borderRadius: '2px',
+            fontSize: '12px',
             cursor: 'pointer',
           }}>
-            ⬇️ Download
+            ⬇️ Export File
           </button>
 
+          {/* Run Code Button */}
           <button onClick={runCode} disabled={running} style={{
-            padding: '8px 12px',
-            backgroundColor: running ? '#555' : '#e83e8c',
+            padding: '5px 14px',
+            backgroundColor: running ? '#555555' : '#0e639c',
             color: 'white',
             border: 'none',
-            borderRadius: '5px',
+            borderRadius: '2px',
+            fontSize: '12px',
+            fontWeight: '600',
             cursor: running ? 'not-allowed' : 'pointer',
           }}>
-            {running ? '⏳ Running...' : '▶️ Run Code'}
+            {running ? '⏳ Executing...' : '▶ Run Code'}
           </button>
 
         </div>
       </div>
 
-      {/* Editor + Output */}
+      {/* Editor & Terminal Panel Area */}
       <div style={{ display: 'flex', flex: 1 }}>
 
+        {/* Monaco Editor Section */}
         <div style={{ flex: 1 }}>
           <MonacoEditor
             height="100%"
@@ -175,21 +226,52 @@ function Editor() {
             value={code}
             onChange={handleCodeChange}
             theme="vs-dark"
+            options={{
+              fontSize: 14,
+              minimap: { enabled: true },
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+              tabSize: 2,
+            }}
           />
         </div>
 
+        {/* Console / Output Panel */}
         <div style={{
-          width: '300px',
-          backgroundColor: '#0d0d0d',
-          color: '#00ff00',
-          padding: '15px',
-          fontFamily: 'monospace',
-          fontSize: '14px',
-          overflowY: 'auto',
-          borderLeft: '2px solid #007acc',
+          width: '320px',
+          backgroundColor: '#181818',
+          color: '#d4d4d4',
+          display: 'flex',
+          flexDirection: 'column',
+          borderLeft: '1px solid #3c3c3c',
         }}>
-          <h3 style={{ color: '#007acc', marginTop: 0 }}>📤 Output</h3>
-          <pre>{output || 'Click ▶️ Run Code to see output here!'}</pre>
+          {/* Output Header Bar */}
+          <div style={{
+            backgroundColor: '#252526',
+            padding: '6px 12px',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            color: '#858585',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            borderBottom: '1px solid #3c3c3c'
+          }}>
+            Terminal / Output
+          </div>
+
+          {/* Output Terminal Output Window */}
+          <pre style={{
+            padding: '12px',
+            fontFamily: 'Consolas, "Courier New", monospace',
+            fontSize: '13px',
+            color: '#4ec9b0',
+            whiteSpace: 'pre-wrap',
+            margin: 0,
+            flex: 1,
+            overflowY: 'auto'
+          }}>
+            {output || '// Click "▶ Run Code" to display execution output here.'}
+          </pre>
         </div>
 
       </div>
